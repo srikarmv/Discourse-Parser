@@ -30,10 +30,12 @@ MAX_SENT_LEN = 100
 W2V = Word2Vec.wv.load('wordvectors.w2v.model')
 X_sent_train = []
 X_word_train = []
+X_connect_train = []
 Y_train = []
 
 X_train_sent = []
 X_train_words = []
+X_connect_words = []
 
 def clean(s):
     s = s.split(' ')
@@ -55,6 +57,11 @@ def getSentVec(s):
         res.append(getWordVec(i))
     return res
 
+def toCategorical(label):
+	res = [0, 0, 0]
+	res[label] = 1
+	return res
+
 def readData(fname):
     global X_train_sent
     global X_train_words
@@ -66,18 +73,26 @@ def readData(fname):
         if(len(row) >= 2):
             sent = clean(row[0])
             curVecSent = getSentVec(sent)
-            words = row[1:]
-            for i in words:
-                X_sent_train.append(curVecSent)
-                X_word_train.append(getWordVec(i))
-                Y_train.append(1)
-                X_train_sent.append(sent)
-                X_train_words.append(i)
+            words = row[1]
+            connect = row[2]
+            label = int(row[3])
+            X_sent_train.append(curVecSent)
+            X_word_train.append(getWordVec(words))
+
+            X_train_sent.append(sent)
+            X_train_words.append(words)
+
+            X_connect_words.append(connect)
+            X_connect_train.append(getWordVec(connect))
+
+            Y_train.append(toCategorical(label))
             
 
 def train():
     input_a = Input(shape = (MAX_SENT_LEN,100,))
     input_b = Input(shape = (100,))
+    input_c = Input(shape = (100,))
+
     sentNetwork = Sequential()
     sentNetwork.add(LSTM(100, return_sequences = False, input_shape = (MAX_SENT_LEN, 100, )))
     sentNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
@@ -88,21 +103,29 @@ def train():
     wordNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
     wordNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
 
-    mainNetwork = Sequential()
-    mainNetwork.add(Merge([sentNetwork, wordNetwork], mode='concat'))
-    mainNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
-    mainNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
-    mainNetwork.add(Dense(2, init = 'glorot_normal', activation = 'softmax')) # Yes/No
+    connectNetwork = Sequential()
+    connectNetwork.add(Dense(100, input_shape=(100,), init = 'glorot_normal', activation = 'tanh'))
+    connectNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
+    connectNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
 
-    probs = mainNetwork([input_a, input_b])
-    model = Model(input = [input_a, input_b], output = [probs])
+    mainNetwork = Sequential()
+    mainNetwork.add(Merge([sentNetwork, wordNetwork, connectNetwork], mode='concat'))
+    mainNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
+    mainNetwork.add(Dense(100, init = 'glorot_normal', activation = 'tanh'))
+    mainNetwork.add(Dense(3, init = 'glorot_normal', activation = 'softmax')) # part of arg1/part of arg2/neither
+
+    probs = mainNetwork([input_a, input_b, input_c])
+    model = Model(input = [input_a, input_b, input_c], output = [probs])
     model.compile(loss = 'categorical_crossentropy', optimizer = 'adam')
 
-    model.fit([X_sent_train, X_word_train], [Y_train], batch_size = 64, nb_epoch = 20, verbose = 2)
+    model.fit([X_sent_train, X_word_train, X_connect_train], [Y_train], batch_size = 64, nb_epoch = 20, verbose = 2)
     return model
 
 def predictOnTestSet(model):
-    #TODO | Predict the output on testset later.
+	X_sent_test = []
+	X_word_test = []
+	X_connect_test = []
+	probs = model.predict(X_sent_test, X_word_test, X_connect_test)
 
 fname = ''
 readData(fname)
